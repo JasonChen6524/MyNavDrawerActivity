@@ -6,6 +6,7 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
@@ -36,20 +37,27 @@ class MainActivity : AppCompatActivity() {
         bluetoothAdapter?.bluetoothLeScanner
     }
     private val REQUEST_BLUETOOTH_PERMISSIONS = 1
+    private val scannedDevices: MutableList<BluetoothDevice> = mutableListOf()
 
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             super.onScanResult(callbackType, result)
-            Log.d("Bluetooth", "onScanResult() called")
+            // Log.d("Bluetooth ScanResult", "onScanResult() called")
             val device: BluetoothDevice = result.device
-            Log.d("Bluetooth", "Found device: ${device.name} - ${device.address}")
-            Log.d("Bluetooth", "Found device: ${device.name} - ${device.address}")
+            if(device.name != null && device.name.startsWith("V3")) {
+                    Log.d("Bluetooth Found", "Found device: ${device.name} - ${device.address}")
+                    // Add the device to the list if it's not already there
+                    if (!scannedDevices.contains(device)) {
+                    scannedDevices.add(device)
+                        Log.d("Bluetooth Add", "Device added to list: ${device.name} - ${device.address}")
+                    }
+            }
             // Handle the discovered device here
         }
 
         override fun onScanFailed(errorCode: Int) {
             super.onScanFailed(errorCode)
-            Log.e("Bluetooth", "Scan failed with error code: $errorCode")
+            Log.e("Bluetooth Fail?", "Scan failed with error code: $errorCode")
         }
     }
 
@@ -93,7 +101,7 @@ class MainActivity : AppCompatActivity() {
                 // 蓝牙未开启，提示用户开启
                 // You can prompt the user to enable Bluetooth here
             } else {
-                Log.d("Bluetooth", "Bluetooth is enabled")
+                Log.d("Bluetooth Enable?", "Bluetooth is enabled")
             }
             checkBluetoothPermissions()
         }
@@ -145,7 +153,12 @@ class MainActivity : AppCompatActivity() {
         val scanSettings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
             .build()
-        Log.d("Bluetooth", "startScan() called")
+        Log.d("Bluetooth Scan1", "startScan() called")
+
+
+        // Create a list of ScanFilters
+        val scanFilters: List<ScanFilter> = emptyList()
+
         if (ActivityCompat.checkSelfPermission(
                 this,
                 Manifest.permission.BLUETOOTH_SCAN
@@ -153,8 +166,8 @@ class MainActivity : AppCompatActivity() {
         ) {
             return
         }
-        bluetoothLeScanner?.startScan(null, scanSettings, scanCallback)
-        Log.d("Bluetooth", "bluetoothLeScanner?.startScan() called")
+        bluetoothLeScanner?.startScan(scanFilters, scanSettings, scanCallback)
+        Log.d("Bluetooth Scan2", "bluetoothLeScanner?.startScan() called")
     }
 
     private fun stopScan() {
