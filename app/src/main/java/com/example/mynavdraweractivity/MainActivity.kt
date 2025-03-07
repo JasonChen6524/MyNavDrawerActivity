@@ -26,9 +26,8 @@ import androidx.navigation.ui.setupWithNavController
 import androidx.drawerlayout.widget.DrawerLayout
 import androidx.appcompat.app.AppCompatActivity
 import com.example.mynavdraweractivity.databinding.ActivityMainBinding
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
 import com.example.mynavdraweractivity.adapters.DeviceAdapter
+import com.example.mynavdraweractivity.ui.home.HomeFragment
 
 import android.bluetooth.BluetoothSocket
 import android.os.Handler
@@ -37,6 +36,10 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.util.UUID
 import android.os.Looper
+import androidx.navigation.fragment.NavHostFragment
+import android.content.BroadcastReceiver
+import android.content.Intent
+import android.content.IntentFilter // 导入 IntentFilter
 
 class MainActivity : AppCompatActivity(), DeviceAdapter.OnDeviceClickListener{
 
@@ -46,32 +49,106 @@ class MainActivity : AppCompatActivity(), DeviceAdapter.OnDeviceClickListener{
 
     private lateinit var appBarConfiguration: AppBarConfiguration
     private lateinit var binding: ActivityMainBinding
-    private lateinit var deviceAdapter: DeviceAdapter
-    private lateinit var deviceRecyclerView: RecyclerView
 
     private var bluetoothAdapter: BluetoothAdapter? = null
     private val bluetoothLeScanner: BluetoothLeScanner? by lazy {
         bluetoothAdapter?.bluetoothLeScanner
     }
-    private val REQUEST_BLUETOOTH_PERMISSIONS = 1
-    private val scannedDevices: MutableList<BluetoothDevice> = mutableListOf()
 
+    private val REQUEST_BLUETOOTH_PERMISSIONS = 1
+    val scannedDevices: MutableList<BluetoothDevice> = mutableListOf()
+    private lateinit var homeFragment: HomeFragment
     private var bluetoothSocket: BluetoothSocket? = null
     private var connectedThread: ConnectedThread? = null
-    private val MY_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB") // 替换为你设备的 UUID
+    //private val MY_UUID: UUID = UUID.fromString("FEC26EC4-6D71-4442-9F81-55BC21D658D6") // 替换为你设备的 UUID
+    private val MY_UUID: UUID = UUID.fromString("4880c12c-fdcb-4077-8920-a450d7f9b907") // 替换为你设备的 UUID
+    //private val MY_UUID:  UUID = UUID.fromString("50242207-1A68-3C2B-23D9-7A59238C3FC4") // 替换为你设备的 UUID
+    //private val MY_UUID:  UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB") // 替换为你设备的 UUID
+
+    private var isConnecting = false // 添加一个标志位
+    // BroadcastReceiver to listen for bond state changes
+    private val bondStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            val action = intent.action
+            if (BluetoothDevice.ACTION_BOND_STATE_CHANGED == action) {
+                val device: BluetoothDevice? = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+                val previousBondState = intent.getIntExtra(BluetoothDevice.EXTRA_PREVIOUS_BOND_STATE, -1)
+                val bondState = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, -1)
+
+                Log.d("Bluetooth", "Bond state changed for device: ${device?.name}")
+                Log.d("Bluetooth", "Previous bond state: ${getBondStateString(previousBondState)}")
+                Log.d("Bluetooth", "Current bond state: ${getBondStateString(bondState)}")
+
+                when (bondState) {
+                    BluetoothDevice.BOND_BONDED -> {
+                        Log.d("Bluetooth", "Device is now bonded.")
+                        // Now that the device is bonded, try to connect
+                        if (!isConnecting) {
+                            device?.let { connectToDevice(it) }
+                        }
+                    }
+                    BluetoothDevice.BOND_NONE -> {
+                        Log.d("Bluetooth", "Device is not bonded.")
+                        isConnecting = false // Reset the flag when bonding fails
+                        // Handle bond failure
+                    }
+                    BluetoothDevice.BOND_BONDING -> {
+                        Log.d("Bluetooth", "Device is bonding...")
+                        // Handle bonding process
+                    }
+                }
+            }
+        }
+    }
+
+    private fun getBondStateString(bondState: Int): String {
+        return when (bondState) {
+            BluetoothDevice.BOND_NONE -> "BOND_NONE"
+            BluetoothDevice.BOND_BONDING -> "BOND_BONDING"
+            BluetoothDevice.BOND_BONDED -> "BOND_BONDED"
+            else -> "UNKNOWN"
+        }
+    }
 
     private fun connectToDevice(device: BluetoothDevice) {
+        Log.d("MainActivity***", "connectToDevice called: ${device.name}") // 添加日志
         // 使用一个线程来执行连接操作，避免阻塞主线程
         Thread {
+            isConnecting = true // Set the flag to true at the beginning
             try {
-                if (ActivityCompat.checkSelfPermission(
-                        this,
-                        Manifest.permission.BLUETOOTH_CONNECT
-                    ) != PackageManager.PERMISSION_GRANTED
-                ) {
+                Thread.sleep(500)
+                //stopScan() // 在连接之前停止扫描
+                //Thread.sleep(500)
+                if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                    Log.d("MainActivity@@@", "checkSelfPermission") // 添加日志
                     return@Thread
                 }
+                // 检查设备是否已配对
+                if (device.bondState != BluetoothDevice.BOND_BONDED) {
+                    Log.d("Bluetooth333", "设备未配对。正在启动配对...")
+                    if (ActivityCompat.checkSelfPermission(
+                            this,
+                            Manifest.permission.BLUETOOTH_CONNECT
+                        ) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        return@Thread
+                    }
+                    registerReceiver(bondStateReceiver,IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED))
+                    device.createBond()
+                    // 你可能需要在这里等待配对完成
+                    // 然后再继续连接。
+                    // 这通常涉及到监听
+                    // ACTION_BOND_STATE_CHANGED 广播。
+                    Log.d("Bluetooth444", "正在启动配对...。。。")
+                    return@Thread
+                }
+
+                Log.d("MainActivity###", "connecting......") // 添加日志
+                Log.d("MainActivity###", "connecting......:${device.uuids}") // 添加日志
                 bluetoothSocket = device.createRfcommSocketToServiceRecord(MY_UUID)
+                //bluetoothSocket = device.createInsecureRfcommSocketToServiceRecord(MY_UUID)
+                Log.d("Bluetooth111", "bluetoothSocket: $bluetoothSocket")
+                Log.d("Bluetooth222", "Before bluetoothSocket?.connect()") // New log
                 bluetoothSocket?.connect()
                 Log.d("Bluetooth", "已连接到设备: ${device.name}")
                 // 连接成功后，启动数据接收线程
@@ -79,7 +156,13 @@ class MainActivity : AppCompatActivity(), DeviceAdapter.OnDeviceClickListener{
                 connectedThread?.start()
             } catch (e: IOException) {
                 Log.e("Bluetooth", "连接设备失败: ${e.message}")
+                //e.printStackTrace()
+                bluetoothSocket?.close()
                 bluetoothSocket = null
+
+                //startScan()
+            }finally {
+                isConnecting = false // Set the flag to false in the finally block
             }
         }.start()
     }
@@ -164,17 +247,21 @@ class MainActivity : AppCompatActivity(), DeviceAdapter.OnDeviceClickListener{
             super.onScanResult(callbackType, result)
             // Log.d("Bluetooth ScanResult", "onScanResult() called")
             val device: BluetoothDevice = result.device
-            if(device.name != null && device.name.startsWith("V3")) {
+            if(device.name != null && device.name.startsWith("V5")) {
+
+                stopScan()
+
                     Log.d("Bluetooth Found", "Found device: ${device.name} - ${device.address}")
                     // Add the device to the list if it's not already there
                     if (!scannedDevices.contains(device)) {
-                    scannedDevices.add(device)
+                        scannedDevices.add(device)
                         Log.d("Bluetooth Add", "Device added to list: ${device.name} - ${device.address}")
                         // 更新 RecyclerView
                         runOnUiThread {
-                            deviceAdapter.notifyDataSetChanged()
+                            homeFragment.deviceAdapter.notifyDataSetChanged()
                         }
                     }
+                // connectToDevice(device)
             }
             // Handle the discovered device here
         }
@@ -200,7 +287,11 @@ class MainActivity : AppCompatActivity(), DeviceAdapter.OnDeviceClickListener{
         }
         val drawerLayout: DrawerLayout = binding.drawerLayout
         val navView: NavigationView = binding.navView
-        val navController = findNavController(R.id.nav_host_fragment_content_main)
+        //val navController = findNavController(R.id.nav_host_fragment_content_main)
+        val navHostFragment = supportFragmentManager.findFragmentById(R.id.nav_host_fragment_content_main) as NavHostFragment
+        val navController = navHostFragment.navController
+        homeFragment = navHostFragment.childFragmentManager.fragments[0] as HomeFragment
+
         // Passing each menu ID as a set of Ids because each
         // menu should be considered as top level destinations.
         appBarConfiguration = AppBarConfiguration(
@@ -210,11 +301,6 @@ class MainActivity : AppCompatActivity(), DeviceAdapter.OnDeviceClickListener{
         )
         setupActionBarWithNavController(navController, appBarConfiguration)
         navView.setupWithNavController(navController)
-
-        deviceRecyclerView = findViewById(R.id.deviceRecyclerView)
-        deviceRecyclerView.layoutManager = LinearLayoutManager(this)
-        deviceAdapter = DeviceAdapter(scannedDevices, this)
-        deviceRecyclerView.adapter = deviceAdapter
 
         // Get Bluetooth adapter
         val bluetoothManager: BluetoothManager =
@@ -237,6 +323,7 @@ class MainActivity : AppCompatActivity(), DeviceAdapter.OnDeviceClickListener{
     }
 
     override fun onDeviceClick(device: BluetoothDevice) {
+        Log.d("MainActivity-->", "onDeviceClick called: ${device.name}") // 添加日志
         // 处理设备点击事件，例如连接设备
         connectToDevice(device)
     }
@@ -267,6 +354,7 @@ class MainActivity : AppCompatActivity(), DeviceAdapter.OnDeviceClickListener{
             ActivityCompat.requestPermissions(this, permissionsToRequest, REQUEST_BLUETOOTH_PERMISSIONS)
         } else {
             // Permissions already granted, proceed with Bluetooth operations
+            Log.d("Bluetooth Scan3", "startScan() called")
             startScan()
         }
     }
@@ -274,8 +362,10 @@ class MainActivity : AppCompatActivity(), DeviceAdapter.OnDeviceClickListener{
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQUEST_BLUETOOTH_PERMISSIONS) {
+            Log.d("Bluetooth Scan5", "startScan() called")
             if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
                 // Permissions granted, proceed with Bluetooth operations
+                Log.d("Bluetooth Scan4", "startScan() called")
                 startScan()
             } else {
                 // Permissions denied, handle accordingly
@@ -312,6 +402,7 @@ class MainActivity : AppCompatActivity(), DeviceAdapter.OnDeviceClickListener{
         ) {
             return
         }
+        Log.d("Bluetooth stopScan", "bluetoothLeScanner?.stopScan() called")
         bluetoothLeScanner?.stopScan(scanCallback)
     }
 }

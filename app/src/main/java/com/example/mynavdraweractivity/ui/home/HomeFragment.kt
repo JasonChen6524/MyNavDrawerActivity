@@ -11,7 +11,10 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.example.mynavdraweractivity.adapters.DeviceAdapter
+import com.example.mynavdraweractivity.MainActivity
 import com.example.mynavdraweractivity.databinding.FragmentHomeBinding
+import android.os.Handler
+import android.os.Looper
 
 class HomeFragment : Fragment(), DeviceAdapter.OnDeviceClickListener{
 
@@ -20,17 +23,16 @@ class HomeFragment : Fragment(), DeviceAdapter.OnDeviceClickListener{
     // This property is only valid between onCreateView and
     // onDestroyView.
     private val binding get() = _binding!!
-    private lateinit var deviceAdapter: DeviceAdapter
-    private lateinit var deviceRecyclerView: RecyclerView
-    private val scannedDevices: MutableList<BluetoothDevice> = mutableListOf()
+    lateinit var deviceRecyclerView: RecyclerView
+    lateinit var mainActivity: MainActivity
+    lateinit var deviceAdapter: DeviceAdapter
+    private val mainThreadHandler = Handler(Looper.getMainLooper())
 
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
-        val homeViewModel =
-            ViewModelProvider(this).get(HomeViewModel::class.java)
 
         _binding = FragmentHomeBinding.inflate(inflater, container, false)
         val root: View = binding.root
@@ -41,7 +43,8 @@ class HomeFragment : Fragment(), DeviceAdapter.OnDeviceClickListener{
         //}
         deviceRecyclerView = binding.deviceRecyclerView
         deviceRecyclerView.layoutManager = LinearLayoutManager(requireContext())
-        deviceAdapter = DeviceAdapter(scannedDevices, this)
+        mainActivity = activity as MainActivity
+        deviceAdapter = DeviceAdapter(mainActivity.scannedDevices, this, mainThreadHandler) // 将 MainActivity 的 scannedDevices 作为数据源
         deviceRecyclerView.adapter = deviceAdapter
         return root
     }
@@ -53,8 +56,7 @@ class HomeFragment : Fragment(), DeviceAdapter.OnDeviceClickListener{
 
     override fun onDeviceClick(device: BluetoothDevice) {
         // 处理设备点击事件，例如连接设备
-        //connectToDevice(device)
         Log.d("HomeFragment", "Device clicked: ${device.name}")
+        mainActivity.onDeviceClick(device)
     }
-
 }

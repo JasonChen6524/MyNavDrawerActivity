@@ -1,14 +1,16 @@
 package com.example.mynavdraweractivity.adapters
 
 import android.bluetooth.BluetoothDevice
+import android.os.Handler
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.example.mynavdraweractivity.R
+import android.util.Log
 
-class DeviceAdapter(private val devices: List<BluetoothDevice>, private val listener: OnDeviceClickListener) :
+class DeviceAdapter(private val devices: List<BluetoothDevice>, private val listener: OnDeviceClickListener, private val mainThreadHandler: Handler) :
     RecyclerView.Adapter<DeviceAdapter.DeviceViewHolder>() {
 
     interface OnDeviceClickListener {
@@ -31,9 +33,15 @@ class DeviceAdapter(private val devices: List<BluetoothDevice>, private val list
         holder.deviceNameTextView.text = device.name ?: "Unknown Device"
         holder.deviceAddressTextView.text = device.address
         holder.itemView.setOnClickListener {
-            listener.onDeviceClick(device)
+            Log.d("DeviceAdapter+++", "Item clicked: ${device.name}") // 添加日志
+            // listener.onDeviceClick(device)
+            mainThreadHandler.post { // 使用 mainThreadHandler 来执行 listener.onDeviceClick(device)
+                listener.onDeviceClick(device)
+            }
         }
     }
 
-    override fun getItemCount(): Int = devices.size
+    override fun getItemCount(): Int {
+        return devices.size
+    }
 }
