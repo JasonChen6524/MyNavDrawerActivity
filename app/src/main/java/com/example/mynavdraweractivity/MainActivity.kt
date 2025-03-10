@@ -3,7 +3,11 @@ package com.example.mynavdraweractivity
 import android.Manifest
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothGatt
+import android.bluetooth.BluetoothGattCallback
+import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothProfile
 import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
@@ -40,6 +44,7 @@ import androidx.navigation.fragment.NavHostFragment
 import android.content.BroadcastReceiver
 import android.content.Intent
 import android.content.IntentFilter // 导入 IntentFilter
+import android.os.ParcelUuid
 
 class MainActivity : AppCompatActivity(), DeviceAdapter.OnDeviceClickListener{
 
@@ -58,14 +63,14 @@ class MainActivity : AppCompatActivity(), DeviceAdapter.OnDeviceClickListener{
     private val REQUEST_BLUETOOTH_PERMISSIONS = 1
     val scannedDevices: MutableList<BluetoothDevice> = mutableListOf()
     private lateinit var homeFragment: HomeFragment
-    private var bluetoothSocket: BluetoothSocket? = null
+    private var bluetoothGatt: BluetoothGatt? = null
+    //private var bluetoothSocket: BluetoothSocket? = null
     private var connectedThread: ConnectedThread? = null
-    //private val MY_UUID: UUID = UUID.fromString("FEC26EC4-6D71-4442-9F81-55BC21D658D6") // 替换为你设备的 UUID
-    private val MY_UUID: UUID = UUID.fromString("4880c12c-fdcb-4077-8920-a450d7f9b907") // 替换为你设备的 UUID
-    //private val MY_UUID:  UUID = UUID.fromString("50242207-1A68-3C2B-23D9-7A59238C3FC4") // 替换为你设备的 UUID
-    //private val MY_UUID:  UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB") // 替换为你设备的 UUID
+    private val TARGET_SERVICE_UUID    = UUID.fromString("4880c12c-fdcb-4077-8920-a450d7f9b907") // Your target service UUID
+    private val MY_CHARACTERISTIC_UUID = UUID.fromString("FEC26EC4-6D71-4442-9F81-55BC21D658D6")
 
     private var isConnecting = false // 添加一个标志位
+
     // BroadcastReceiver to listen for bond state changes
     private val bondStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -110,6 +115,89 @@ class MainActivity : AppCompatActivity(), DeviceAdapter.OnDeviceClickListener{
         }
     }
 
+    private val gattCallback = object : BluetoothGattCallback() {
+        override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
+            val deviceAddress = gatt.device.address
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                if (newState == BluetoothProfile.STATE_CONNECTED) {
+                    Log.d("Bluetooth Conn", "Connected to GATT server: $deviceAddress")
+                    // Discover services
+                    if (ActivityCompat.checkSelfPermission(
+                            this@MainActivity,
+                            Manifest.permission.BLUETOOTH_CONNECT
+                        ) != PackageManager.PERMISSION_GRANTED
+                    ) {
+                        return
+                    }
+                    gatt.discoverServices()
+                } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                    Log.d("Bluetooth Disconn", "Disconnected from GATT server: $deviceAddress")
+                    disconnectGattServer()
+                }
+            } else {
+                Log.e("Bluetooth Error", "Connection failed with status: $status for device: $deviceAddress")
+                disconnectGattServer()
+            }
+        }
+
+        override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                Log.d("Bluetooth Discovered", "Services discovered for device: ${gatt.device.address}")
+                // Check if the target service is present
+                val service = gatt.getService(TARGET_SERVICE_UUID)
+                if (service != null) {
+                    Log.d("Bluetooth Target Found", "Target service found: $TARGET_SERVICE_UUID")
+                    // You can now interact with the service and its characteristics
+                    // Example: Read a characteristic
+                    val characteristic = service.getCharacteristic(MY_CHARACTERISTIC_UUID)
+                    if (characteristic != null) {
+                        gatt.setCharacteristicNotification(characteristic, true)
+                        gatt.readCharacteristic(characteristic)
+                        //Int xyz = 0
+                        //val redC = gatt.requestMtu(xyz)
+                        //gatt.requestMtu(int: mtuValue);
+                        //Log.d("Bluetooth MTU Value", "MTU Value: $redC")
+                    }
+                } else {
+                    Log.w("Bluetooth", "Target service not found: $TARGET_SERVICE_UUID")
+                }
+            } else {
+                Log.e("Bluetooth", "Service discovery failed with status: $status")
+            }
+            isConnecting = false
+        }
+
+        override fun onCharacteristicRead(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            value: ByteArray,
+            status: Int
+        ) {
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                Log.d(
+                    "Bluetooth",
+                    "Read characteristic ${characteristic.uuid}: ${value.contentToString()}"
+                )
+            } else {
+                Log.e(
+                    "Bluetooth",
+                    "Failed to read characteristic ${characteristic.uuid} with status: $status"
+                )
+            }
+        }
+    }
+
+    fun disconnectGattServer() {
+        Log.d("Bluetooth", "Closing Gatt connection")
+        if (bluetoothGatt != null) {
+            bluetoothGatt?.disconnect()
+            bluetoothGatt?.close()
+            bluetoothGatt = null
+        }
+        isConnecting = false
+        startScan()
+    }
+
     private fun connectToDevice(device: BluetoothDevice) {
         Log.d("MainActivity***", "connectToDevice called: ${device.name}") // 添加日志
         // 使用一个线程来执行连接操作，避免阻塞主线程
@@ -124,41 +212,46 @@ class MainActivity : AppCompatActivity(), DeviceAdapter.OnDeviceClickListener{
                     return@Thread
                 }
                 // 检查设备是否已配对
-                if (device.bondState != BluetoothDevice.BOND_BONDED) {
-                    Log.d("Bluetooth333", "设备未配对。正在启动配对...")
-                    if (ActivityCompat.checkSelfPermission(
-                            this,
-                            Manifest.permission.BLUETOOTH_CONNECT
-                        ) != PackageManager.PERMISSION_GRANTED
-                    ) {
-                        return@Thread
-                    }
-                    registerReceiver(bondStateReceiver,IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED))
-                    device.createBond()
+            //    if (device.bondState != BluetoothDevice.BOND_BONDED) {
+            //        Log.d("Bluetooth333", "设备未配对。正在启动配对...")
+            //        if (ActivityCompat.checkSelfPermission(
+            //                this,
+            //                Manifest.permission.BLUETOOTH_CONNECT
+            //            ) != PackageManager.PERMISSION_GRANTED
+            //        ) {
+            //            return@Thread
+            //        }
+            //        registerReceiver(bondStateReceiver,IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED))
+            //        device.createBond()
                     // 你可能需要在这里等待配对完成
                     // 然后再继续连接。
                     // 这通常涉及到监听
                     // ACTION_BOND_STATE_CHANGED 广播。
-                    Log.d("Bluetooth444", "正在启动配对...。。。")
-                    return@Thread
-                }
+            //        Log.d("Bluetooth444", "正在启动配对...。。。")
+            //        return@Thread
+            //    }
 
                 Log.d("MainActivity###", "connecting......") // 添加日志
                 Log.d("MainActivity###", "connecting......:${device.uuids}") // 添加日志
-                bluetoothSocket = device.createRfcommSocketToServiceRecord(MY_UUID)
-                //bluetoothSocket = device.createInsecureRfcommSocketToServiceRecord(MY_UUID)
-                Log.d("Bluetooth111", "bluetoothSocket: $bluetoothSocket")
-                Log.d("Bluetooth222", "Before bluetoothSocket?.connect()") // New log
-                bluetoothSocket?.connect()
-                Log.d("Bluetooth", "已连接到设备: ${device.name}")
+
+                bluetoothGatt = device.connectGatt(this, false, gattCallback)
+                Log.d("BLE Connecting to GATT server", "Connecting to GATT server: ${device.address}")
+
+
+            //    bluetoothSocket = device.createRfcommSocketToServiceRecord(MY_UUID)
+            //    //bluetoothSocket = device.createInsecureRfcommSocketToServiceRecord(MY_UUID)
+            //    Log.d("Bluetooth111", "bluetoothSocket: $bluetoothSocket")
+            //    Log.d("Bluetooth222", "Before bluetoothSocket?.connect()") // New log
+            //    bluetoothSocket?.connect()
+            //    Log.d("Bluetooth", "已连接到设备: ${device.name}")
                 // 连接成功后，启动数据接收线程
-                connectedThread = ConnectedThread(bluetoothSocket!!)
-                connectedThread?.start()
+            //    connectedThread = ConnectedThread(bluetoothSocket!!)
+            //    connectedThread?.start()
             } catch (e: IOException) {
                 Log.e("Bluetooth", "连接设备失败: ${e.message}")
                 //e.printStackTrace()
-                bluetoothSocket?.close()
-                bluetoothSocket = null
+            //    bluetoothSocket?.close()
+            //   bluetoothSocket = null
 
                 //startScan()
             }finally {
@@ -247,7 +340,7 @@ class MainActivity : AppCompatActivity(), DeviceAdapter.OnDeviceClickListener{
             super.onScanResult(callbackType, result)
             // Log.d("Bluetooth ScanResult", "onScanResult() called")
             val device: BluetoothDevice = result.device
-            if(device.name != null && device.name.startsWith("V5")) {
+            if(device.name != null && device.name.startsWith("V3")) {
 
                 stopScan()
 
