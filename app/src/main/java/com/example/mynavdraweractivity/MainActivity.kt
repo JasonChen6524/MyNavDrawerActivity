@@ -6,6 +6,7 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
+import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.bluetooth.le.BluetoothLeScanner
@@ -33,18 +34,9 @@ import com.example.mynavdraweractivity.databinding.ActivityMainBinding
 import com.example.mynavdraweractivity.adapters.DeviceAdapter
 import com.example.mynavdraweractivity.ui.home.HomeFragment
 
-import android.bluetooth.BluetoothSocket
-import android.os.Handler
 import java.io.IOException
-import java.io.InputStream
-import java.io.OutputStream
 import java.util.UUID
-import android.os.Looper
 import androidx.navigation.fragment.NavHostFragment
-import android.content.BroadcastReceiver
-import android.content.Intent
-import android.content.IntentFilter // 导入 IntentFilter
-import android.os.ParcelUuid
 
 class MainActivity : AppCompatActivity(), DeviceAdapter.OnDeviceClickListener{
 
@@ -64,56 +56,11 @@ class MainActivity : AppCompatActivity(), DeviceAdapter.OnDeviceClickListener{
     val scannedDevices: MutableList<BluetoothDevice> = mutableListOf()
     private lateinit var homeFragment: HomeFragment
     private var bluetoothGatt: BluetoothGatt? = null
-    //private var bluetoothSocket: BluetoothSocket? = null
-    private var connectedThread: ConnectedThread? = null
     private val TARGET_SERVICE_UUID    = UUID.fromString("4880c12c-fdcb-4077-8920-a450d7f9b907") // Your target service UUID
     private val MY_CHARACTERISTIC_UUID = UUID.fromString("FEC26EC4-6D71-4442-9F81-55BC21D658D6")
+    private val CLIENT_CHARACTERISTIC_CONFIG = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb") // 客户端特征值配置 UUID (固定值)
 
     private var isConnecting = false // 添加一个标志位
-
-    // BroadcastReceiver to listen for bond state changes
-    private val bondStateReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            val action = intent.action
-            if (BluetoothDevice.ACTION_BOND_STATE_CHANGED == action) {
-                val device: BluetoothDevice? = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
-                val previousBondState = intent.getIntExtra(BluetoothDevice.EXTRA_PREVIOUS_BOND_STATE, -1)
-                val bondState = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, -1)
-
-                Log.d("Bluetooth", "Bond state changed for device: ${device?.name}")
-                Log.d("Bluetooth", "Previous bond state: ${getBondStateString(previousBondState)}")
-                Log.d("Bluetooth", "Current bond state: ${getBondStateString(bondState)}")
-
-                when (bondState) {
-                    BluetoothDevice.BOND_BONDED -> {
-                        Log.d("Bluetooth", "Device is now bonded.")
-                        // Now that the device is bonded, try to connect
-                        if (!isConnecting) {
-                            device?.let { connectToDevice(it) }
-                        }
-                    }
-                    BluetoothDevice.BOND_NONE -> {
-                        Log.d("Bluetooth", "Device is not bonded.")
-                        isConnecting = false // Reset the flag when bonding fails
-                        // Handle bond failure
-                    }
-                    BluetoothDevice.BOND_BONDING -> {
-                        Log.d("Bluetooth", "Device is bonding...")
-                        // Handle bonding process
-                    }
-                }
-            }
-        }
-    }
-
-    private fun getBondStateString(bondState: Int): String {
-        return when (bondState) {
-            BluetoothDevice.BOND_NONE -> "BOND_NONE"
-            BluetoothDevice.BOND_BONDING -> "BOND_BONDING"
-            BluetoothDevice.BOND_BONDED -> "BOND_BONDED"
-            else -> "UNKNOWN"
-        }
-    }
 
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
@@ -151,12 +98,10 @@ class MainActivity : AppCompatActivity(), DeviceAdapter.OnDeviceClickListener{
                     // Example: Read a characteristic
                     val characteristic = service.getCharacteristic(MY_CHARACTERISTIC_UUID)
                     if (characteristic != null) {
-                        gatt.setCharacteristicNotification(characteristic, true)
-                        gatt.readCharacteristic(characteristic)
-                        //Int xyz = 0
-                        //val redC = gatt.requestMtu(xyz)
-                        //gatt.requestMtu(int: mtuValue);
-                        //Log.d("Bluetooth MTU Value", "MTU Value: $redC")
+                        // 启用特征值的通知
+                        setCharacteristicNotification(gatt, characteristic, true)
+                    }else{
+                        Log.w("Bluetooth", "Target service not found: $TARGET_SERVICE_UUID")
                     }
                 } else {
                     Log.w("Bluetooth", "Target service not found: $TARGET_SERVICE_UUID")
@@ -165,6 +110,21 @@ class MainActivity : AppCompatActivity(), DeviceAdapter.OnDeviceClickListener{
                 Log.e("Bluetooth", "Service discovery failed with status: $status")
             }
             isConnecting = false
+        }
+
+        // 特征值改变 (接收到数据)
+        override fun onCharacteristicChanged(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic
+        ) {
+            val data = characteristic.value
+            val hexString = bytesToHex(data)
+            Log.d("Bluetooth RECV", "Received data (hex): $hexString")
+            // 在这里，你可以将 hexString 显示在你的 UI 上
+            // 例如，更新一个 TextView 的文本：
+            runOnUiThread {
+                //binding.myTextView.text = hexString  // 假设你有一个名为 myTextView 的 TextView
+            }
         }
 
         override fun onCharacteristicRead(
@@ -187,9 +147,54 @@ class MainActivity : AppCompatActivity(), DeviceAdapter.OnDeviceClickListener{
         }
     }
 
+    // 启用特征值的通知
+    private fun setCharacteristicNotification(
+        gatt: BluetoothGatt,
+        characteristic: BluetoothGattCharacteristic,
+        enable: Boolean
+    ) {
+        if (ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.BLUETOOTH_CONNECT
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        gatt.setCharacteristicNotification(characteristic, enable)
+
+        // 找到 Client Characteristic Configuration Descriptor
+        val descriptor = characteristic.getDescriptor(CLIENT_CHARACTERISTIC_CONFIG)
+        if (descriptor != null) {
+            descriptor.value =
+                if (enable) BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE else BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE
+            gatt.writeDescriptor(descriptor)
+            Log.d("Bluetooth Descripter", "$descriptor.value")
+        }
+    }
+
+    // 将字节数组转换为十六进制字符串
+    private fun bytesToHex(bytes: ByteArray): String {
+        val hexArray = "0123456789ABCDEF".toCharArray()
+        val hexChars = CharArray(bytes.size * 2)
+        for (j in bytes.indices) {
+            val v = bytes[j].toInt() and 0xFF
+            hexChars[j * 2] = hexArray[v ushr 4]
+            hexChars[j * 2 + 1] = hexArray[v and 0x0F]
+        }
+        return String(hexChars)
+    }
+
+
     fun disconnectGattServer() {
-        Log.d("Bluetooth", "Closing Gatt connection")
+        Log.d("Bluetooth Closing", "Closing Gatt connection")
         if (bluetoothGatt != null) {
+            if (ActivityCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.BLUETOOTH_CONNECT
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                return
+            }
             bluetoothGatt?.disconnect()
             bluetoothGatt?.close()
             bluetoothGatt = null
@@ -211,42 +216,11 @@ class MainActivity : AppCompatActivity(), DeviceAdapter.OnDeviceClickListener{
                     Log.d("MainActivity@@@", "checkSelfPermission") // 添加日志
                     return@Thread
                 }
-                // 检查设备是否已配对
-            //    if (device.bondState != BluetoothDevice.BOND_BONDED) {
-            //        Log.d("Bluetooth333", "设备未配对。正在启动配对...")
-            //        if (ActivityCompat.checkSelfPermission(
-            //                this,
-            //                Manifest.permission.BLUETOOTH_CONNECT
-            //            ) != PackageManager.PERMISSION_GRANTED
-            //        ) {
-            //            return@Thread
-            //        }
-            //        registerReceiver(bondStateReceiver,IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED))
-            //        device.createBond()
-                    // 你可能需要在这里等待配对完成
-                    // 然后再继续连接。
-                    // 这通常涉及到监听
-                    // ACTION_BOND_STATE_CHANGED 广播。
-            //        Log.d("Bluetooth444", "正在启动配对...。。。")
-            //        return@Thread
-            //    }
 
                 Log.d("MainActivity###", "connecting......") // 添加日志
-                Log.d("MainActivity###", "connecting......:${device.uuids}") // 添加日志
-
                 bluetoothGatt = device.connectGatt(this, false, gattCallback)
                 Log.d("BLE Connecting to GATT server", "Connecting to GATT server: ${device.address}")
 
-
-            //    bluetoothSocket = device.createRfcommSocketToServiceRecord(MY_UUID)
-            //    //bluetoothSocket = device.createInsecureRfcommSocketToServiceRecord(MY_UUID)
-            //    Log.d("Bluetooth111", "bluetoothSocket: $bluetoothSocket")
-            //    Log.d("Bluetooth222", "Before bluetoothSocket?.connect()") // New log
-            //    bluetoothSocket?.connect()
-            //    Log.d("Bluetooth", "已连接到设备: ${device.name}")
-                // 连接成功后，启动数据接收线程
-            //    connectedThread = ConnectedThread(bluetoothSocket!!)
-            //    connectedThread?.start()
             } catch (e: IOException) {
                 Log.e("Bluetooth", "连接设备失败: ${e.message}")
                 //e.printStackTrace()
@@ -258,81 +232,6 @@ class MainActivity : AppCompatActivity(), DeviceAdapter.OnDeviceClickListener{
                 isConnecting = false // Set the flag to false in the finally block
             }
         }.start()
-    }
-
-    private inner class ConnectedThread(private val mmSocket: BluetoothSocket) : Thread() {
-        private val mmInStream: InputStream?
-        private val mmOutStream: OutputStream?
-        private val handler: Handler
-
-        init {
-            var tmpIn: InputStream? = null
-            var tmpOut: OutputStream? = null
-
-            // Get the input and output streams, using temp objects because
-            // member streams are final
-            try {
-                tmpIn = mmSocket.inputStream
-                tmpOut = mmSocket.outputStream
-            } catch (e: IOException) {
-                Log.e("Bluetooth", "Error occurred when creating input stream", e)
-            }
-
-            mmInStream = tmpIn
-            mmOutStream = tmpOut
-            // 创建一个 Handler，用于在 UI 线程中处理消息
-            handler = Handler(Looper.getMainLooper()) { message ->
-                when (message.what) {
-                    MESSAGE_READ -> {
-                        val readBuff = message.obj as ByteArray
-                        val readMessage = String(readBuff, 0, message.arg1)
-                        Log.d("Bluetooth", "Received message: $readMessage")
-                        // 在这里处理接收到的数据，例如更新 UI
-                        // ...
-                        true
-                    }
-                    else -> false
-                }
-            }
-        }
-
-        override fun run() {
-            val buffer = ByteArray(1024)  // buffer store for the stream
-            var bytes: Int // bytes returned from read()
-
-            // Keep listening to the InputStream until an exception occurs
-            while (true) {
-                try {
-                    // Read from the InputStream
-                    bytes = mmInStream!!.read(buffer)
-                    // Send the obtained bytes to the UI activity
-                    val readMsg = handler.obtainMessage(
-                        MESSAGE_READ, bytes, -1,
-                        buffer
-                    )
-                    readMsg.sendToTarget()
-                } catch (e: IOException) {
-                    Log.d("Bluetooth", "Input stream was disconnected", e)
-                    break
-                }
-            }
-        }
-
-        fun write(bytes: ByteArray) {
-            try {
-                mmOutStream!!.write(bytes)
-            } catch (e: IOException) {
-                Log.e("Bluetooth", "Error occurred when sending data", e)
-            }
-        }
-
-        fun cancel() {
-            try {
-                mmSocket.close()
-            } catch (e: IOException) {
-                Log.e("Bluetooth", "Could not close the connect socket", e)
-            }
-        }
     }
 
     private val scanCallback = object : ScanCallback() {
@@ -367,12 +266,10 @@ class MainActivity : AppCompatActivity(), DeviceAdapter.OnDeviceClickListener{
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
         setSupportActionBar(binding.appBarMain.toolbar)
-
         binding.appBarMain.fab.setOnClickListener { view ->
             Snackbar.make(view, "Replace with your own action", Snackbar.LENGTH_LONG)
                 .setAction("Action", null)
@@ -471,7 +368,6 @@ class MainActivity : AppCompatActivity(), DeviceAdapter.OnDeviceClickListener{
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
             .build()
         Log.d("Bluetooth Scan1", "startScan() called")
-
 
         // Create a list of ScanFilters
         val scanFilters: List<ScanFilter> = emptyList()
