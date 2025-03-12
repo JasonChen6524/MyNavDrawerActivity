@@ -7,7 +7,6 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
-import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.example.mynavdraweractivity.adapters.DeviceAdapter
@@ -26,7 +25,6 @@ class HomeFragment : Fragment(), DeviceAdapter.OnDeviceClickListener{
     lateinit var deviceRecyclerView: RecyclerView
     lateinit var mainActivity: MainActivity
     lateinit var deviceAdapter: DeviceAdapter
-    private val mainThreadHandler = Handler(Looper.getMainLooper())
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -44,7 +42,7 @@ class HomeFragment : Fragment(), DeviceAdapter.OnDeviceClickListener{
         deviceRecyclerView = binding.deviceRecyclerView
         deviceRecyclerView.layoutManager = LinearLayoutManager(requireContext())
         mainActivity = activity as MainActivity
-        deviceAdapter = DeviceAdapter(mainActivity.scannedDevices, this, mainThreadHandler) // 将 MainActivity 的 scannedDevices 作为数据源
+        deviceAdapter = DeviceAdapter(mainActivity.scannedDevices, this) // 将 MainActivity 的 scannedDevices 作为数据源
         deviceRecyclerView.adapter = deviceAdapter
         return root
     }

@@ -119,11 +119,13 @@ class MainActivity : AppCompatActivity(), DeviceAdapter.OnDeviceClickListener{
         ) {
             val data = characteristic.value
             val hexString = bytesToHex(data)
-            Log.d("Bluetooth RECV", "Received data (hex): $hexString")
+            //Log.d("Bluetooth RECV", "Received data (hex): $hexString")
             // 在这里，你可以将 hexString 显示在你的 UI 上
             // 例如，更新一个 TextView 的文本：
+            val deviceAddress = gatt.device.address
             runOnUiThread {
                 //binding.myTextView.text = hexString  // 假设你有一个名为 myTextView 的 TextView
+                homeFragment.deviceAdapter.updateDeviceData(deviceAddress, hexString)
             }
         }
 
@@ -209,7 +211,7 @@ class MainActivity : AppCompatActivity(), DeviceAdapter.OnDeviceClickListener{
         Thread {
             isConnecting = true // Set the flag to true at the beginning
             try {
-                Thread.sleep(500)
+                //Thread.sleep(500)
                 //stopScan() // 在连接之前停止扫描
                 //Thread.sleep(500)
                 if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
@@ -224,10 +226,6 @@ class MainActivity : AppCompatActivity(), DeviceAdapter.OnDeviceClickListener{
             } catch (e: IOException) {
                 Log.e("Bluetooth", "连接设备失败: ${e.message}")
                 //e.printStackTrace()
-            //    bluetoothSocket?.close()
-            //   bluetoothSocket = null
-
-                //startScan()
             }finally {
                 isConnecting = false // Set the flag to false in the finally block
             }
@@ -240,7 +238,7 @@ class MainActivity : AppCompatActivity(), DeviceAdapter.OnDeviceClickListener{
             // Log.d("Bluetooth ScanResult", "onScanResult() called")
             val device: BluetoothDevice = result.device
             if(device.name != null && device.name.startsWith("V3")) {
-
+                
                 stopScan()
 
                     Log.d("Bluetooth Found", "Found device: ${device.name} - ${device.address}")
@@ -344,7 +342,7 @@ class MainActivity : AppCompatActivity(), DeviceAdapter.OnDeviceClickListener{
             ActivityCompat.requestPermissions(this, permissionsToRequest, REQUEST_BLUETOOTH_PERMISSIONS)
         } else {
             // Permissions already granted, proceed with Bluetooth operations
-            Log.d("Bluetooth Scan3", "startScan() called")
+            Log.d("Bluetooth Scan0", "startScan() called")
             startScan()
         }
     }
@@ -352,10 +350,10 @@ class MainActivity : AppCompatActivity(), DeviceAdapter.OnDeviceClickListener{
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQUEST_BLUETOOTH_PERMISSIONS) {
-            Log.d("Bluetooth Scan5", "startScan() called")
+            Log.d("Bluetooth Scan1", "startScan() called")
             if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
                 // Permissions granted, proceed with Bluetooth operations
-                Log.d("Bluetooth Scan4", "startScan() called")
+                Log.d("Bluetooth Scan2", "startScan() called")
                 startScan()
             } else {
                 // Permissions denied, handle accordingly
@@ -367,7 +365,7 @@ class MainActivity : AppCompatActivity(), DeviceAdapter.OnDeviceClickListener{
         val scanSettings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
             .build()
-        Log.d("Bluetooth Scan1", "startScan() called")
+        Log.d("Bluetooth Scan3", "startScan() called")
 
         // Create a list of ScanFilters
         val scanFilters: List<ScanFilter> = emptyList()
@@ -380,7 +378,7 @@ class MainActivity : AppCompatActivity(), DeviceAdapter.OnDeviceClickListener{
             return
         }
         bluetoothLeScanner?.startScan(scanFilters, scanSettings, scanCallback)
-        Log.d("Bluetooth Scan2", "bluetoothLeScanner?.startScan() called")
+        Log.d("Bluetooth Scan4", "bluetoothLeScanner?.startScan() called")
     }
 
     private fun stopScan() {
